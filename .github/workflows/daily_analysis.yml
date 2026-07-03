@@ -1,0 +1,76 @@
+# 每日股票分析 - GitHub Actions 自动化
+# 每个工作日北京时间 18:00 自动运行（UTC 10:00）
+# 也支持手动触发
+
+name: Daily Stock Analysis
+
+on:
+  schedule:
+    # UTC 10:00 = 北京时间 18:00（收盘后）
+    - cron: '0 10 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '运行模式'
+        required: false
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - alert
+          - test
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install markdown
+
+      - name: Run daily analysis
+        env:
+          # AI 配置（必填，至少配一个）
+          AI_PROVIDER: ${{ vars.AI_PROVIDER || 'deepseek' }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_BASE_URL: ${{ vars.AI_BASE_URL || 'https://api.deepseek.com' }}
+          AI_MODEL: ${{ vars.AI_MODEL || 'deepseek-chat' }}
+          # 自选股（必填）
+          STOCK_LIST: ${{ secrets.STOCK_LIST }}
+          # 邮件推送配置（可选）
+          EMAIL_ENABLED: ${{ vars.EMAIL_ENABLED || 'false' }}
+          EMAIL_SMTP_HOST: ${{ vars.EMAIL_SMTP_HOST || 'smtp.qq.com' }}
+          EMAIL_SMTP_PORT: ${{ vars.EMAIL_SMTP_PORT || '465' }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+          # 企业微信推送（可选）
+          WECHAT_WEBHOOK_URL: ${{ secrets.WECHAT_WEBHOOK_URL }}
+          # 飞书推送（可选）
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+        run: |
+          MODE="${{ github.event.inputs.mode || 'daily' }}"
+          echo "Running in mode: $MODE"
+          python -m src.main --mode $MODE --config env
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-report-${{ github.run_number }}
+          path: reports/
+          retention-days: 30
