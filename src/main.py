@@ -16,6 +16,7 @@ from src.analysis.report import ReportGenerator
 from src.data.fetcher import StockFetcher
 from src.data.indicators import TechnicalIndicators
 from src.notify.email_sender import EmailNotifier
+from src.notify.webhook import WebhookNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,14 @@ def setup_logging(config: dict):
 
 
 def load_config(config_path: str = "config/config.yaml") -> dict:
-    """加载主配置"""
+    """
+    加载主配置
+    - config_path="env": 从环境变量加载（GitHub Actions 模式）
+    - 其他: 从 YAML 文件加载（本地模式）
+    """
+    if config_path == "env":
+        return _load_config_from_env()
+
     if not os.path.exists(config_path):
         logger.error(f"配置文件不存在: {config_path}")
         logger.info("请复制 config/config.example.yaml 为 config/config.yaml 并填入配置")
@@ -48,10 +56,107 @@ def load_config(config_path: str = "config/config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
+def _load_config_from_env() -> dict:
+    """从环境变量构建配置（GitHub Actions / Docker 场景）"""
+    logger.info("从环境变量加载配置...")
+
+    config = {
+        "ai": {
+            "provider": os.environ.get("AI_PROVIDER", "deepseek"),
+            "api_key": os.environ.get("AI_API_KEY", ""),
+            "base_url": os.environ.get("AI_BASE_URL", "https://api.deepseek.com"),
+            "model": os.environ.get("AI_MODEL", "deepseek-chat"),
+            "ollama_url": os.environ.get("OLLAMA_URL", "http://localhost:11434"),
+            "ollama_model": os.environ.get("OLLAMA_MODEL", "qwen2.5:7b"),
+        },
+        "email": {
+            "enabled": os.environ.get("EMAIL_ENABLED", "false").lower() == "true",
+            "smtp_host": os.environ.get("EMAIL_SMTP_HOST", "smtp.qq.com"),
+            "smtp_port": int(os.environ.get("EMAIL_SMTP_PORT", "465")),
+            "smtp_ssl": os.environ.get("EMAIL_SMTP_SSL", "true").lower() == "true",
+            "sender": os.environ.get("EMAIL_SENDER", ""),
+            "password": os.environ.get("EMAIL_PASSWORD", ""),
+            "recipients": [
+                r.strip()
+                for r in os.environ.get("EMAIL_RECIPIENTS", "").split(",")
+                if r.strip()
+            ],
+        },
+        "webhook": {
+            "wechat_url": os.environ.get("WECHAT_WEBHOOK_URL", ""),
+            "feishu_url": os.environ.get("FEISHU_WEBHOOK_URL", ""),
+        },
+        "data": {
+            "provider": os.environ.get("DATA_PROVIDER", "akshare"),
+        },
+        "logging": {
+            "level": os.environ.get("LOG_LEVEL", "INFO"),
+            "file": "logs/app.log",
+        },
+    }
+
+    if not config["ai"]["api_key"]:
+        logger.error("AI_API_KEY 环境变量未设置")
+        sys.exit(1)
+
+    return config
+
+
 def load_stocks(stocks_path: str = "config/stocks.yaml") -> dict:
-    """加载自选股配置"""
-    with open(stocks_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    """
+    加载自选股配置
+    优先从文件加载，文件不存在时从 STOCK_LIST 环境变量解析
+    环境变量格式: "600519:贵州茅台:1400:1800,hk00700:腾讯控股:300:500"
+      - 前缀 hk 表示港股，否则为 A 股
+      - 字段: 代码:名称:止损价:目标价（止损和目标可省略）
+    """
+    if os.path.exists(stocks_path):
+        with open(stocks_path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+
+    # 从环境变量解析
+    stock_list_str = os.environ.get("STOCK_LIST", "")
+    if not stock_list_str:
+        logger.error("STOCK_LIST 环境变量未设置，且 stocks.yaml 不存在")
+        sys.exit(1)
+
+    logger.info("从 STOCK_LIST 环境变量解析自选股...")
+    a_stocks = []
+    hk_stocks = []
+
+    for item in stock_list_str.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        parts = item.split(":")
+        code = parts[0]
+        name = parts[1] if len(parts) > 1 else code
+        stop_loss = float(parts[2]) if len(parts) > 2 and parts[2] else None
+        target_price = float(parts[3]) if len(parts) > 3 and parts[3] else None
+
+        stock_entry = {"code": code.lstrip("hk"), "name": name}
+        if stop_loss is not None:
+            stock_entry["stop_loss"] = stop_loss
+        if target_price is not None:
+            stock_entry["target_price"] = target_price
+
+        if code.startswith("hk"):
+            hk_stocks.append(stock_entry)
+        else:
+            a_stocks.append(stock_entry)
+
+    return {
+        "watchlist": {
+            "a_stock": a_stocks,
+            "hk_stock": hk_stocks,
+        },
+        "alert_rules": [
+            {"name": "价格突破20日均线", "type": "ma_cross", "params": {"period": 20, "direction": "up"}, "level": "info"},
+            {"name": "MACD金叉", "type": "macd_cross", "params": {"direction": "golden"}, "level": "important"},
+            {"name": "放量上涨", "type": "volume_surge", "params": {"multiplier": 2.0, "min_change_pct": 3.0}, "level": "warning"},
+            {"name": "跌破止损价", "type": "stop_loss", "params": {}, "level": "critical"},
+        ],
+    }
 
 
 def run_daily_analysis(config: dict, stocks_config: dict):
@@ -75,6 +180,7 @@ def run_daily_analysis(config: dict, stocks_config: dict):
     alert_engine = AlertEngine(stocks_config.get("alert_rules", []))
     report_gen = ReportGenerator()
     email_notifier = EmailNotifier(config.get("email", {}))
+    webhook_notifier = WebhookNotifier(config.get("webhook", {}))
 
     # 计算日期范围（最近 90 天）
     end_date = datetime.now().strftime("%Y%m%d")
@@ -143,6 +249,10 @@ def run_daily_analysis(config: dict, stocks_config: dict):
     critical_alerts = [a for a in all_alerts if a["level"] in ("critical", "warning")]
     if critical_alerts:
         email_notifier.send_alert(critical_alerts)
+
+    # Webhook 推送（企业微信 / 飞书）
+    if webhook_notifier.send_report(subject, report_content):
+        logger.info("✅ Webhook 推送成功")
 
     logger.info(f"分析完成！报告已保存: {report_path}")
     logger.info(f"共分析 {len(stock_analyses)} 只股票，触发 {len(all_alerts)} 条预警")

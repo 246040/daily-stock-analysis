@@ -88,6 +88,69 @@ python -m src.main --mode alert
 - OpenAI GPT
 - 本地 Ollama（qwen2.5、llama 等）
 
+## GitHub Actions 自动化部署（推荐）
+
+零成本、无服务器，Fork 后配置 Secrets 即可每日自动运行。
+
+### 1. Fork 或 Clone 本仓库
+
+### 2. 配置 GitHub Secrets
+
+进入 `Settings → Secrets and variables → Actions → New repository secret`：
+
+| Secret 名称 | 必填 | 说明 |
+|-------------|------|------|
+| `AI_API_KEY` | ✅ | AI 模型 API Key（DeepSeek 免费注册即可） |
+| `STOCK_LIST` | ✅ | 自选股列表（见下方格式说明） |
+| `EMAIL_SENDER` | 📧 | 发件人邮箱 |
+| `EMAIL_PASSWORD` | 📧 | 邮箱授权码 |
+| `EMAIL_RECIPIENTS` | 📧 | 收件人，多个用逗号分隔 |
+| `WECHAT_WEBHOOK_URL` | 💬 | 企业微信群机器人 Webhook |
+| `FEISHU_WEBHOOK_URL` | 💬 | 飞书群机器人 Webhook |
+
+> 📧 和 💬 至少配置一种推送渠道
+
+### 3. 配置 Variables（可选）
+
+进入 `Settings → Secrets and variables → Actions → Variables`：
+
+| Variable 名称 | 默认值 | 说明 |
+|---------------|--------|------|
+| `AI_PROVIDER` | `deepseek` | AI 提供商 |
+| `AI_BASE_URL` | `https://api.deepseek.com` | API 地址 |
+| `AI_MODEL` | `deepseek-chat` | 模型名称 |
+| `EMAIL_ENABLED` | `false` | 是否启用邮件 |
+
+### 4. STOCK_LIST 格式
+
+```
+代码:名称:止损价:目标价
+```
+
+- 港股代码加 `hk` 前缀
+- 止损价和目标价可省略
+- 多只股票用逗号分隔
+
+示例：
+```
+600519:贵州茅台:1400:1800,000001:平安银行,hk00700:腾讯控股:300:500,hk09988:阿里巴巴-W
+```
+
+### 5. 启用 Actions
+
+进入 `Actions` 标签页 → 点击 `I understand my workflows, go ahead and enable them`
+
+- 默认每工作日北京时间 18:00 自动运行
+- 也可以手动触发：`Actions → Daily Stock Analysis → Run workflow`
+
+## 推送渠道
+
+| 渠道 | 配置方式 | 消息格式 |
+|------|---------|---------|
+| 📧 邮件 | SMTP 配置 | HTML（带样式） |
+| 💬 企业微信 | Webhook URL | Markdown |
+| 💬 飞书 | Webhook URL | 富文本 Post |
+
 ## License
 
 MIT
