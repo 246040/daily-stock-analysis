@@ -1,0 +1,43 @@
+# AI Trade A 配置文件
+# 复制为 config.yaml 并填入你的实际配置
+
+# AI 模型配置
+ai:
+  provider: "deepseek"  # deepseek / openai / ollama
+  api_key: "your-api-key-here"
+  base_url: "https://api.deepseek.com"  # DeepSeek API
+  model: "deepseek-chat"
+  # Ollama 本地模型配置（备用）
+  ollama_url: "http://localhost:11434"
+  ollama_model: "qwen2.5:7b"
+
+# 邮件推送配置
+email:
+  enabled: true
+  smtp_host: "smtp.qq.com"
+  smtp_port: 465
+  smtp_ssl: true
+  sender: "your-email@qq.com"
+  password: "your-smtp-password"  # QQ邮箱需要用授权码
+  recipients:
+    - "recipient@example.com"
+
+# 调度配置
+schedule:
+  # 每日分析报告时间（24小时制）
+  daily_report: "18:00"
+  # 预警检测间隔（分钟）
+  alert_interval: 30
+  # 仅工作日运行
+  workdays_only: true
+
+# 数据源配置
+data:
+  provider: "akshare"  # akshare / tushare
+  # Tushare Token（如果使用 tushare）
+  tushare_token: ""
+
+# 日志配置
+logging:
+  level: "INFO"
+  file: "logs/app.log"
